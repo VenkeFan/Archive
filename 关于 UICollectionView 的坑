@@ -1,0 +1,93 @@
+### 关于 UICollectionView 全选的坑 ###
+
+我们知道，使用 allowsMultipleSelection 属性开启多选功能后，选中和取消选中会分别调用以下方法：
+
+```
+- (BOOL)collectionView:(UICollectionView *)collectionView shouldSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+    return YES;
+}
+
+- (BOOL)collectionView:(UICollectionView *)collectionView shouldDeselectItemAtIndexPath:(NSIndexPath *)indexPath {
+    return YES;
+}
+
+- (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+    
+}
+
+- (void)collectionView:(UICollectionView *)collectionView didDeselectItemAtIndexPath:(NSIndexPath *)indexPath {
+    
+}
+```
+
+当希望 UICollectionViewCell 默认就是选中状态时，我们可能会这么设置：
+
+```
+// [self.selectedUsers addObjectsFromArray:self.allUsers];
+
+- (void)collectionView:(UICollectionView *)collectionView willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSDictionary *itemDic = self.users[indexPath.item];
+    if ([self.selectedUsers containsObject:itemDic]) {
+        [cell setSelected:YES];
+    }
+}
+```
+
+然而，使用这种方式后我们发现并不会调用上述的 Deselect 相关方法，原因暂时未知，查看 selected 属性的官方文档：
+
+```
+You typically do not set the value of this property directly. Changing the value of this property programmatically 
+does not change the appearance of the cell. The preferred way to select the cell and highlight it is to use the 
+selection methods of the collection view object.
+```
+文档只是说我们不应该直接设置这个属性，而是使用 selection methods 相关方法，但仍不能解释造成上述问题的原因。
+先用 UICollectionView 中的 selection methods 试试，
+
+```
+- (void)selectItemAtIndexPath:(nullable NSIndexPath *)indexPath animated:(BOOL)animated scrollPosition:(UICollectionViewScrollPosition)scrollPosition;
+- (void)deselectItemAtIndexPath:(NSIndexPath *)indexPath animated:(BOOL)animated;
+```
+
+我们使用 selectItemAtIndexPath: 这个方法试试
+
+```
+- (void)collectionView:(UICollectionView *)collectionView willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSDictionary *itemDic = self.users[indexPath.item];
+    if ([self.selectedUsers containsObject:itemDic]) {
+        [collectionView selectItemAtIndexPath:indexPath animated:YES scrollPosition:UICollectionViewScrollPositionTop];
+    }
+}
+```
+
+奇怪的事情又发生了，页面加载出来后，cell 并没有显示选中的状态样式，然后点击 UICollectionView 的任意地方，这时候所有的 cell 就全变成了选中的状态样式，
+猜测原因跟 [UICollectionView reloadData] 的刷新机制有关，但仍没找到具体的原因，(ps. 在 cellForItemAtIndexPath: 方法中情况一样)
+不过解决办法有以下三种：
+
+
+1. 
+
+```
+- (void)collectionView:(UICollectionView *)collectionView willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSDictionary *itemDic = self.users[indexPath.item];
+    if ([self.selectedUsers containsObject:itemDic]) {
+        [cell setSelected:YES];
+        [collectionView selectItemAtIndexPath:indexPath animated:YES scrollPosition:UICollectionViewScrollPositionTop];
+    }
+}
+```
+
+2.
+
+```
+- (void)collectionView:(UICollectionView *)collectionView willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSDictionary *itemDic = self.users[indexPath.item];
+    if ([self.selectedUsers containsObject:itemDic]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+           [collectionView selectItemAtIndexPath:indexPath animated:NO scrollPosition:UICollectionViewScrollPositionNone];
+        });
+    }
+}
+```
+
+3. 自己使用自定义数据源，代码就不贴了。
+
